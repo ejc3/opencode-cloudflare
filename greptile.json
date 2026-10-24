@@ -1,0 +1,7 @@
+{
+  "strictness": 2,
+  "autoReview": ["open", "push", "rebase"],
+  "triggerOnDrafts": false,
+  "statusCheck": true,
+  "instructions": "Focus on correctness, authentication boundaries, credential exposure, and unbuffered streaming. Follow the Code Review Rules in AGENTS.md."
+}
