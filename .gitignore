@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+cloudflare.json
+service.json
+nginx.conf

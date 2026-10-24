@@ -1,0 +1,12 @@
+tunnel: YOUR_TUNNEL_ID
+credentials-file: /etc/cloudflared/credentials.json
+ingress:
+  - hostname: opencode.example.com
+    service: http://127.0.0.1:49375
+    originRequest:
+      access:
+        required: true
+        teamName: YOUR_ACCESS_TEAM
+        audTag:
+          - YOUR_ACCESS_APP_AUDIENCE
+  - service: http_status:404

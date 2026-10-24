@@ -1,0 +1,19 @@
+[Unit]
+Description=Cloudflare-authenticated OpenCode web proxy for %i
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+User=%i
+Environment=HOME=/home/%i
+WorkingDirectory=/home/%i
+RuntimeDirectory=opencode-cloudflare-%i
+RuntimeDirectoryMode=0700
+UMask=0077
+ExecStart=/usr/local/lib/opencode-cloudflare/proxy.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

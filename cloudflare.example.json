@@ -1,0 +1,5 @@
+{
+  "hostname": "opencode.example.com",
+  "port": 49374,
+  "proxy_port": 49375
+}
