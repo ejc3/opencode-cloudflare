@@ -20,6 +20,7 @@ HOST = "opencode.example.com"
 PASSWORD = "test-password-only"
 AUTH = "Basic " + base64.b64encode(("opencode:" + PASSWORD).encode()).decode()
 NGINX = shutil.which("nginx")
+APP_HTML = b'<!doctype html><html><head></head><body><script type="module" src="/app.js"></script></body></html>'
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -78,8 +79,9 @@ class Backend(BaseHTTPRequestHandler):
             self.wfile.flush()
             self.close_connection = True
             return
-        payload = b'{"projects": []}'
+        payload = APP_HTML if self.path == "/" else b'{"projects": []}'
         self.send_response(200)
+        self.send_header("Content-Type", "text/html" if self.path == "/" else "application/json")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
@@ -102,6 +104,7 @@ class HTTPTests(unittest.TestCase):
             sock.bind(("127.0.0.1", 0))
             cls.port = sock.getsockname()[1]
         runtime = Path(cls.directory.name)
+        proxy.prepare_assets(runtime)
         config = runtime / "nginx.conf"
         config.write_text(proxy.configuration(
             {"hostname": HOST, "port": cls.backend.server_port, "proxy_port": cls.port}, PASSWORD, runtime
@@ -136,16 +139,62 @@ class HTTPTests(unittest.TestCase):
             cls.process.kill()
             cls.process.wait(timeout=5)
 
-    def request(self, path="/api/info", headers=None, port=None):
+    def request(self, path="/api/info", headers=None, port=None, method="GET"):
         connection = http.client.HTTPConnection("127.0.0.1", port or self.port, timeout=2)
         self.addCleanup(connection.close)
-        connection.request("GET", path, headers={"Host": HOST, **(headers or {})})
+        connection.request(method, path, headers={"Host": HOST, **(headers or {})})
         return connection.getresponse()
 
     def test_browser_needs_no_native_credential(self):
         response = self.request()
         self.assertEqual(response.status, 200)
         self.assertEqual(response.read(), b'{"projects": []}')
+
+    def test_recovery_assets_are_local_no_store_and_contain_no_native_credential(self):
+        for path, filename, content_type in (("/sw.js", "service-worker.js", "application/javascript"),
+                                              ("/auth/access-refresh", "access-refresh.html", "text/html")):
+            with self.subTest(path=path):
+                calls = len(self.backend.seen)
+                response = self.request(path)
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.getheader("Cache-Control"), "no-store")
+                self.assertTrue(response.getheader("Content-Type").startswith(content_type))
+                body = response.read()
+                self.assertEqual(body, (MODULE.parent / filename).read_bytes())
+                self.assertNotIn(PASSWORD.encode(), body)
+                self.assertNotIn(AUTH.encode(), body)
+                self.assertEqual(len(self.backend.seen), calls)
+                if path == "/sw.js":
+                    self.assertEqual(response.getheader("Service-Worker-Allowed"), "/")
+
+    def test_recovery_assets_allow_only_get_and_head(self):
+        for path in ("/sw.js", "/auth/access-refresh"):
+            response = self.request(path, method="HEAD")
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.read(), b"")
+            for method in ("POST", "PUT", "DELETE"):
+                with self.subTest(path=path, method=method):
+                    calls = len(self.backend.seen)
+                    response = self.request(path, method=method)
+                    self.assertEqual(response.status, 405)
+                    response.read()
+                    self.assertEqual(len(self.backend.seen), calls)
+
+    def test_application_html_is_not_rewritten(self):
+        response = self.request("/")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.read(), APP_HTML)
+
+    def test_recovery_assets_keep_origin_and_host_checks(self):
+        for path in ("/sw.js", "/auth/access-refresh"):
+            for headers, status in (({"Origin": "https://attacker.example"}, 403),
+                                    ({"Host": "wrong.example"}, 421)):
+                with self.subTest(path=path, headers=headers):
+                    calls = len(self.backend.seen)
+                    response = self.request(path, headers=headers)
+                    self.assertEqual(response.status, status)
+                    response.read()
+                    self.assertEqual(len(self.backend.seen), calls)
 
     def test_client_authorization_is_replaced(self):
         response = self.request(headers={"Authorization": "Bearer incorrect"})
