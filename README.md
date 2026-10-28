@@ -79,6 +79,7 @@ The HTTP integration tests run a real nginx process against a local authenticate
 browser requests need no upstream credentials, incorrect client credentials are replaced, invalid origins and hosts
 are rejected before reaching the backend, native authentication remains required, and event streams are not buffered.
 Those tests require nginx; configuration tests run without it. CI installs nginx and runs the complete suite.
+The force-refresh recovery fixture also runs the page's real script in Node.js when available.
 
 For a deployment, verify an anonymous request to the public API redirects to Cloudflare login, then open a fresh
 browser session and confirm Projects opens after Cloudflare sign-in without the OpenCode connection form.

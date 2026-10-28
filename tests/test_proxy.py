@@ -21,6 +21,7 @@ PASSWORD = "test-password-only"
 AUTH = "Basic " + base64.b64encode(("opencode:" + PASSWORD).encode()).decode()
 NGINX = shutil.which("nginx")
 APP_HTML = b'<!doctype html><html><head></head><body><script type="module" src="/app.js"></script></body></html>'
+NODE = shutil.which("node")
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -45,6 +46,52 @@ class ConfigurationTests(unittest.TestCase):
                 proxy.configuration(dict(self.spec, **changes), PASSWORD, "/run/test")
         with self.assertRaises(ValueError):
             proxy.configuration(self.spec, "", "/run/test")
+
+
+@unittest.skipUnless(NODE, "node is required for the recovery-page browser fixture")
+class RecoveryPageTests(unittest.TestCase):
+    def test_updated_worker_recovers_a_force_refreshed_uncontrolled_page(self):
+        script = r'''
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+(async () => {
+  const source = fs.readFileSync(process.argv[1], 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
+  let redirected;
+  let updates = 0;
+  const status = { textContent: '' };
+  const retry = { hidden: true, addEventListener() {} };
+  const registration = {
+    active: { state: 'activated' }, installing: null, waiting: null,
+    async update() { updates++; },
+  };
+  const context = {
+    AbortController,
+    document: { getElementById(id) { return id === 'status' ? status : retry; } },
+    location: { replace(path) { redirected = path; }, reload() {} },
+    navigator: { serviceWorker: {
+      controller: null, // A force refresh may bypass an already active service worker.
+      ready: Promise.resolve(registration),
+      async register(path, options) {
+        assert.equal(path, '/sw.js');
+        assert.equal(options.scope, '/');
+        assert.equal(options.updateViaCache, 'none');
+        return registration;
+      },
+    } },
+    async fetch() { return { status: 200, async json() { return { version: 'test' }; } }; },
+    setTimeout(callback, delay) { return setTimeout(callback, Math.min(delay, 25)); },
+    clearTimeout,
+  };
+  await vm.runInNewContext(source, context);
+  assert.equal(redirected, '/');
+  assert.equal(updates, 1);
+  assert.equal(retry.hidden, true);
+})().catch((error) => { console.error(error); process.exit(1); });
+'''
+        result = subprocess.run([NODE, "-e", script, str(MODULE.parent / "access-refresh.html")],
+                                capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 class Backend(BaseHTTPRequestHandler):
