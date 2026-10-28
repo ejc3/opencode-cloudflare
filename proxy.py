@@ -11,6 +11,13 @@ import os
 from pathlib import Path
 
 
+def prepare_assets(runtime):
+    for name in ("service-worker.js", "access-refresh.html"):
+        path = Path(runtime) / name
+        path.write_bytes((Path(__file__).resolve().parent / name).read_bytes())
+        path.chmod(0o600)
+
+
 def configuration(spec, password, runtime):
     hostname = spec["hostname"]
     if not hostname or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789.-" for c in hostname):
@@ -36,6 +43,19 @@ http {{
         if ($host != "{hostname}") {{ return 421; }}
         if ($origin_allowed = 0) {{ return 403; }}
         client_max_body_size 32m;
+        location = /sw.js {{
+            if ($request_method !~ "^(GET|HEAD)$") {{ return 405; }}
+            default_type application/javascript;
+            add_header Cache-Control "no-store" always;
+            add_header Service-Worker-Allowed "/" always;
+            alias {runtime}/service-worker.js;
+        }}
+        location = /auth/access-refresh {{
+            if ($request_method !~ "^(GET|HEAD)$") {{ return 405; }}
+            default_type text/html;
+            add_header Cache-Control "no-store" always;
+            alias {runtime}/access-refresh.html;
+        }}
         location / {{
             proxy_pass http://127.0.0.1:{upstream};
             proxy_http_version 1.1;
@@ -59,6 +79,7 @@ def main():
     spec = json.loads((directory / "cloudflare.json").read_text())
     password = json.loads((directory / "service.json").read_text())["password"]
     runtime = Path(os.environ["RUNTIME_DIRECTORY"])
+    prepare_assets(runtime)
     path = runtime / "nginx.conf"
     path.write_text(configuration(spec, password, runtime))
     path.chmod(0o600)

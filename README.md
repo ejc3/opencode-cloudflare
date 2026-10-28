@@ -42,6 +42,7 @@ the intended owner. This proxy reuses the service's existing password and model 
    ```sh
    sudo install -d /usr/local/lib/opencode-cloudflare
    sudo install -m 755 proxy.py /usr/local/lib/opencode-cloudflare/proxy.py
+   sudo install -m 644 service-worker.js access-refresh.html /usr/local/lib/opencode-cloudflare/
    sudo install -m 644 systemd/opencode-cloudflare@.service /etc/systemd/system/
    sudo systemctl daemon-reload
    sudo systemctl enable --now "opencode-cloudflare@$USER.service"
@@ -56,6 +57,15 @@ the intended owner. This proxy reuses the service's existing password and model 
 
 5. Open the public hostname. Cloudflare login is the only sign-in step.
 
+The web UI uses the network while signed in. Its service worker replaces OpenCode's old offline cache and removes only
+that registration's Workbox precache; it keeps projects, browser storage, and other tabs intact. When Cloudflare sign-in
+expires, the requesting tab returns through Cloudflare login automatically. An unreachable server or an unrelated API
+authorization error does not restart a healthy session.
+
+For a tab already stuck on an older cached screen, open `/auth/access-refresh` on the public hostname once. This protected
+page checks the connection and updates the service worker before returning to Projects. If reconnecting fails, it offers
+a visible retry button. The upstream app's HTML and JavaScript remain unchanged.
+
 Model credentials and provider configuration stay with the existing OpenCode service. This project does not copy
 them into nginx or manage them.
 
@@ -69,6 +79,7 @@ The HTTP integration tests run a real nginx process against a local authenticate
 browser requests need no upstream credentials, incorrect client credentials are replaced, invalid origins and hosts
 are rejected before reaching the backend, native authentication remains required, and event streams are not buffered.
 Those tests require nginx; configuration tests run without it. CI installs nginx and runs the complete suite.
+The force-refresh recovery fixture also runs the page's real script in Node.js when available.
 
 For a deployment, verify an anonymous request to the public API redirects to Cloudflare login, then open a fresh
 browser session and confirm Projects opens after Cloudflare sign-in without the OpenCode connection form.
